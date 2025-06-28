@@ -104,8 +104,7 @@ PrivateData = @{
         ProjectUri = 'https://github.com/MiguelBarro/PdbSourceIndexing'
 
         # A URL to an icon representing this module.
-        # IconUri = 'https://ts4.mm.bing.net/th?id=OIP.p45PJIhK5cAFlpdWNrs2ZgAAAA&pid=15.1'
-        IconUri = 'https://raw.githubusercontent.com/MiguelBarro/PdbSourceIndexing/main/res/Stan.jfif'
+        IconUri = 'https://raw.githubusercontent.com/MiguelBarro/PdbSourceIndexing/main/PdbSourceIndexing/res/Stan.jfif'
 
         # ReleaseNotes of this module
         ReleaseNotes = 'Initial Release: 1.0.0'
