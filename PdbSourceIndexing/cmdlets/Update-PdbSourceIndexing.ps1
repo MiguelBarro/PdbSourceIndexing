@@ -1,4 +1,4 @@
-<# 
+<#
 .Synopsis
 Source index PDB files to allow debuggers reference sources on github.
 
@@ -17,6 +17,9 @@ PDB File or collection of PDB files to be modified.
 Directory where the Windows SDK tools (pdbstr, srctool) to update the PDB files
 are located.
 Optional, if not provided the Cmdlet will try to find the tools.
+
+.Parameter ExcludePaths
+Paths to exclude from source indexing.
 
 .Inputs
 PDB File or collection of PDB files to be modified.
@@ -39,6 +42,17 @@ PS> gci /repos/my-project/build/Debug/*.pdb | Update-PdbSourceIndexing
 Use the cmdlet alias to fix PDB files in a directory.
 
 PS> gci /repos/my-project/build/Debug/*.pdb | fixpdb
+
+.Example
+Exclude those files from a private repository:
+
+PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName `
+           -ExcludePaths /repos/my-private-project-A, /repos/my-private-project-B
+
+This is convenient but the debugger often has its own devices. For example in
+windbg and cdb:
+    cdb> .srcpath C:\repos\my-private-project-A;C:\repos\my-private-project-B;SVR*
+will disable source indexing for the private repos and use local sources instead.
 
 .Notes
 Only .exes and .dlls have complete PDB files able to be source indexed.
@@ -84,7 +98,11 @@ function Update-PdbSourceIndexing
                 (Test-Path $_ -PathType Container) -and
                 (Get-ChildItem -Path (Join-Path $_ *) -Include pdbstr.exe, srctool.exe)
                 })]
-            [String]$ToolsPath
+            [String]$ToolsPath,
+        [Parameter(
+            HelpMessage = 'Paths to exclude from source indexing')]
+            [ValidateScript({ Test-Path $_ -PathType Container })]
+            [String[]]$ExcludePaths
     )
 
     $ErrorActionPreference = 'Stop'
@@ -124,6 +142,12 @@ function Update-PdbSourceIndexing
     $repos = New-Object -TypeName Repositories
     $excludes = New-Object -TypeName ExcludePaths
 
+    $user_excludes = $null
+    if($ExcludePaths)
+    {
+        $user_excludes = New-Object -TypeName ExcludePaths -ArgumentList $ExcludePaths
+    }
+
     # Script to process the files into entries
     $process = {
 
@@ -132,8 +156,19 @@ function Update-PdbSourceIndexing
         $entry.id = $_
 
         # Check if the file should be excluded
+
+        # By user command
+        if($user_excludes -and $user_excludes.Exclude($_))
+        {
+            Write-Debug "File $_ is excluded by user command, skipping"
+            return
+        }
+
+        # By introspection
         if($excludes.Exclude($_))
         {
+            # Do not use warning to avoid slowing down the process
+            Write-Debug "File $_ couldn't be associated with any repository, skipping"
             return
         }
 
@@ -151,8 +186,11 @@ function Update-PdbSourceIndexing
             else
             {
                 # If there is no repo ignore and update exclude
-                $excludes.Add($_)
-                Write-Warning "File $_ couldn't be associated with any repository, skipping"
+                if($excludes.AddFile($_))
+                {
+                    $dir = Split-Path -Path $_ -Parent
+                    Write-Warning "Dir $dir couldn't be associated with any repository, skipping"
+                }
                 return
             }
         }
@@ -277,13 +315,15 @@ class Repositories
     {
         # Precondition the $file is not associated with a known repo
 
-        # get associated dir
-        $dir = $file
-        if(Test-Path $file -PathType Leaf)
+        # Check if the file exists
+        $f = Get-Item -Path $file -ErrorAction SilentlyContinue
+        if(!$f)
         {
-            $dir = ($file | Split-Path)
+            return $false
         }
-        $dir.replace("\","/")
+
+        # get associated dir
+        $dir = $f.Directory.FullName
 
         # use git to find out the repo
         $new.commit = git -C $dir log -n1 --pretty=format:'%h' 2>$null
@@ -336,22 +376,64 @@ class ExcludePaths
 {
     [string[]]$dirs
 
-    [bool] Exclude([string]$file) {
-        # Change \ to / (avoid regex escaping issues)
-        return [bool]$this.dirs.Count -and
-               [bool]($file.replace("\","/") | sls -Pattern $this.dirs)
+    ExcludePaths()
+    {
+        $this.dirs = @()
     }
 
-    [void] Add([string]$file) {
-       # Precondition: the file is not excluded
-       # 1. Get the folder
-       $dir = ($file | Split-Path).replace("\","/")
-       # 2. Remove those entries that are subfolders of the new one
+    ExcludePaths([string[]]$dirs)
+    {
+        # Initialize the dirs
+        # Precondition: dirs must be available otherwise it does not
+        # make sense to exclude them
+        foreach ($dir in $dirs)
+        {
+           # Turn into absolute path
+           $dir = Resolve-Path -Path $dir -ErrorAction SilentlyContinue
+           if ($dir)
+           {
+              # Adding one by one to remove subfolders
+              $this.AddDir($dir)
+           }
+        }
+    }
+
+    [bool] Exclude([string]$file)
+    {
+        return [ExcludePaths]::Exclude($file, $this.dirs)
+    }
+
+    [bool] AddDir([string]$dir)
+    {
+       # 1. Normalize path
+       $dir = $dir.replace("\","/")
+       # 2. Check if there already
+       if($this.dirs -contains $dir)
+       {
+           return $false
+       }
+       # 3. Remove those entries that are subfolders of the new one
        if($this.dirs)
        {
            $this.dirs = ($this.dirs | sls -Pattern $dir -NotMatch).Line
        }
-       # 3. Add the new one
+       # 4. Add the new one
        $this.dirs += @($dir.replace("(","\(").replace(")","\)"))
+
+       return $true
+    }
+
+    [bool] AddFile([string]$file)
+    {
+       # Precondition: the file is not excluded
+       $dir = Split-Path -Path $file -Parent
+       return $this.AddDir($dir)
+    }
+
+    static [bool] Exclude([string]$file, [string[]]$dirs)
+    {
+        # Change \ to / (avoid regex escaping issues)
+        return [bool]$dirs.Count -and
+               [bool]($file.replace("\","/") | sls -Pattern $dirs)
     }
 }

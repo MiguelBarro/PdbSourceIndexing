@@ -64,6 +64,20 @@ the modified ones would not be used by the debugger.
 use of short live tokens on the *API REST calls* which makes it impractical to use.
 Long term tokens cannot be used because `SRCSVR` does not support *http* headers customization.
 
+To exclude those files from a private repository:
+
+```powershell
+PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName `
+           -ExcludePaths /repos/my-private-project-A, /repos/my-private-project-B
+```
+
+This is convenient but the debugger often has its own devices. For example in
+windbg and cdb: 
+```windbg
+cdb> .srcpath C:\repos\my-private-project-A;C:\repos\my-private-project-B;SVR*
+```
+will disable source indexing for the private repos and use local sources instead.
+
 ## Requirements and Platform Support
 
 * Supports Windows PowerShell 5.1 (Desktop edition) **with .NET Framework 4.7.1** or later
