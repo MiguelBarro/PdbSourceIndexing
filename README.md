@@ -64,6 +64,8 @@ the modified ones would not be used by the debugger.
 use of short live tokens on the *API REST calls* which makes it impractical to use.
 Long term tokens cannot be used because `SRCSVR` does not support *http* headers customization.
 
+### Excluding files from being associated with github sources
+
 To exclude those files from a private repository:
 
 ```powershell
@@ -72,11 +74,127 @@ PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName `
 ```
 
 This is convenient but the debugger often has its own devices. For example in
-windbg and cdb: 
+windbg and cdb:
 ```windbg
 cdb> .srcpath C:\repos\my-private-project-A;C:\repos\my-private-project-B;SVR*
 ```
 will disable source indexing for the private repos and use local sources instead.
+
+### Manually mapping files to github sources
+
+Manually map sources not currently available, for example static lib sources that are not
+deployed on installation.
+
+This may be helpful too on frameworks like vcpkg, that do not keep the sources
+in git repos.
+
+The mappings can be provided using hashtables:
+
+```powershell
+PS> $proto = @{
+    Name = "protocolbuffers/protobuf"
+    Path = "C:\Users\Stan\.vcpkg\buildtrees\protobuf\src\v5.29.3-74faffde26.clean"
+    Commit = "v5.29.3"
+    Submodules = @(@{
+        Name = "protocolbuffers/protobuf"
+        Path = "C:\Users\Stan\.vcpkg\buildtrees\utf8-range\src\v5.29.3-03b5e8031c.clean"
+        Commit = "v5.29.3"
+      })
+  }
+PS> $abseil = @{
+    Name = "abseil/abseil-cpp"
+    Path = "C:\Users\Stan\.vcpkg\buildtrees\abseil\src\20250127.1-a0a219bf72.clean"
+    Commit = "20250127.1"
+  }
+PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName `
+           -MappedRepos @($proto, $abseil)
+```
+
+Using json strings to define the array of its elements is also possible:
+
+```powershell
+PS> $json = @'
+[
+  {
+    "Commit": "v5.29.3",
+    "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\protobuf\\src\\v5.29.3-74faffde26.clean",
+    "Name": "protocolbuffers/protobuf",
+    "Submodules": [
+      {
+        "Commit": "v5.29.3",
+        "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\utf8-range\\src\\v5.29.3-03b5e8031c.clean",
+        "Name": "protocolbuffers/protobuf"
+      }
+    ]
+  },
+  {
+    "Commit": "20250127.1",
+    "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\abseil\\src\\20250127.1-a0a219bf72.clean",
+    "Name": "abseil/abseil-cpp"
+  }
+]
+'@
+PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName -MappedRepos $json
+```
+
+## CMake integration
+
+This module can be executed as a post-build step in CMake projects. For example:
+
+```cmake
+if(MSVC)
+    # Manually hint the github repository URL for source indexing using a json
+    set(USER_MAPPINGS [==[-MappedRepos ''[
+          {
+            "Commit": "v5.29.3",
+            "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\protobuf\\src\\v5.29.3-74faffde26.clean",
+            "Name": "protocolbuffers/protobuf",
+            "Submodules": [
+              {
+                "Commit": "v5.29.3",
+                "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\utf8-range\\src\\v5.29.3-03b5e8031c.clean",
+                "Name": "protocolbuffers/protobuf"
+              }
+            ]
+          },
+          {
+            "Commit": "20250127.1",
+            "Path": "C:\\Users\\Stan\\.vcpkg\\buildtrees\\abseil\\src\\20250127.1-a0a219bf72.clean",
+            "Name": "abseil/abseil-cpp"
+          }
+        ]'']==])
+
+    # Exclude a private repository from source indexing (sources require authorization for retrieval)
+    set(EXCLUDEPATHS [=[-ExcludePaths "C:\repos\my-project"]=])
+
+    # Avoid escaping issues using base64 encoding
+    set(SOURCE_INDEX_CMD
+        "Install-Module -Name PdbSourceIndexing -Scope CurrentUser -Force;"
+        "Import-Module -Name PdbSourceIndexing;"
+        "Update-PdbSourceIndexing -PDBs $Env:TargetPDB ${USER_MAPPINGS} ${EXCLUDEPATHS}"
+    )
+    string(REPLACE "\n" "" SOURCE_INDEX_CMD "${SOURCE_INDEX_CMD}")
+    execute_process(
+        COMMAND powershell -NoProfile -Command
+            "[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('${SOURCE_INDEX_CMD}'))"
+        OUTPUT_VARIABLE SOURCE_INDEX_CMD
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    # add post build event
+    add_custom_command(
+        TARGET my-project POST_BUILD
+        COMMENT "Adding source indexing to pdb symbols"
+        COMMAND
+        "$<IF:$<CONFIG:Debug,RelWithDebInfo>,${CMAKE_COMMAND},exit>"
+        -E env
+            TargetPDB="$<TARGET_PDB_FILE:my-project>"
+            powershell
+                -NoProfile
+                -EncodedCommand ${SOURCE_INDEX_CMD}
+    )
+endif()
+```
 
 ## Requirements and Platform Support
 
