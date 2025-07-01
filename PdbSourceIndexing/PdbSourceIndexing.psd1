@@ -12,7 +12,7 @@
 RootModule = 'PdbSourceIndexing.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.0'
+ModuleVersion = '1.1.0'
 
 # Supported PSEditions
 CompatiblePSEditions = 'Desktop', 'Core'
@@ -104,10 +104,16 @@ PrivateData = @{
         ProjectUri = 'https://github.com/MiguelBarro/PdbSourceIndexing'
 
         # A URL to an icon representing this module.
-        IconUri = 'https://raw.githubusercontent.com/MiguelBarro/PdbSourceIndexing/main/PdbSourceIndexing/res/Stan.jfif'
+        IconUri = 'https://raw.githubusercontent.com/MiguelBarro/PdbSourceIndexing/v1.1.0/PdbSourceIndexing/res/Stan.jfif'
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Initial Release: 1.0.0'
+        ReleaseNotes = '• ExcludePaths
+Paths to exclude from source indexing.
+This is necessary for private repos where the SRCSVR fails to retrieve the sources due to lack of authorization.
+
+• MappedRepos
+Manually mapped repositories provided by the user.
+This is necessary if the sourcesare not into a git repository and automatic introspection is not possible.'
 
         # Prerelease string of this module
         # Prerelease = ''
@@ -129,4 +135,3 @@ HelpInfoURI = 'https://raw.githubusercontent.com/MiguelBarro/PdbSourceIndexing/m
 # DefaultCommandPrefix = ''
 
 }
-
