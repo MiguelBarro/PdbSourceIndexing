@@ -1,0 +1,57 @@
+name: Dependency distributable generator
+on:
+  workflow_dispatch:
+  
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  windows:
+    runs-on: windows-2025
+
+    steps:
+      - name: Create workspace and build
+        run: |
+          # Create a workspace for the build
+          $install = mkdir install
+          mkdir depends | cd
+          vcpkg new --application
+
+          # Use my vcpkg fork
+          $config = cat vcpkg-configuration.json | ConvertFrom-Json -AsHashtable
+          $config.'default-registry'.repository = 'https://github.com/MiguelBarro/vcpkg'
+          $config.'default-registry'.baseline = 'a9eee3b18df395dbb8be71a31bd78ea441056e42'
+
+          # Use specific toolset
+          $config.'cmake-args' = @("-DCMAKE_GENERATOR_TOOLSET=v143,host=x64")
+         
+          # Save the config changes
+          $config | ConvertTo-Json -Depth 10 | Out-File vcpkg-configuration.json -Encoding utf8
+
+          # Create custom triplet
+          $triplets = mkdir triplets
+          @'
+          set(VCPKG_TARGET_ARCHITECTURE x64)
+          set(VCPKG_CRT_LINKAGE static)
+          set(VCPKG_LIBRARY_LINKAGE static)
+          set(WINDOWS_USE_MSBUILD ON)
+          '@ | Out-File "$triplets/x64-windows-static-msvc.cmake" -Encoding utf8
+
+          # Set up dependencies
+          vcpkg add port protobuf
+          vcpkg add port librdkafka
+
+          # install
+          vcpkg install `
+                --x-install-root=$install `
+                --overlay-triplets=$triplets `
+                --triplet=x64-windows-static-msvc
+                        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-14.44.35207-10.0.26100.0
+          path: ./install/
+
+# vim: set cursorcolumn:tabstop=2 shiftwidth=-1 expandtab:
