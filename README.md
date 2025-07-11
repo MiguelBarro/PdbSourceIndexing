@@ -279,17 +279,21 @@ if(MSVC)
           }
         ]'']==])
 
+    # Output file used as timestamp to trigger indexing
+    set(SOURCE_INDEX_LOG "${CMAKE_CURRENT_BINARY_DIR}/pdb_source_indexing.log")
+
     # Exclude a private repository from source indexing (sources require authorization for retrieval)
     # Exclude framework install dirs where headers are locally available
-    set(EXCLUDEPATHS "-ExcludePaths \"${PROJECT_SOURCE_DIR}\", \"${CMAKE_BINARY_DIR}\", \"$ENV{ProgramFiles}\"")
+    set(EXCLUDEPATHS "-ExcludePaths (\"${PROJECT_SOURCE_DIR}\", \"${CMAKE_BINARY_DIR}\", \"$ENV{ProgramFiles}\")")
 
     # Avoid escaping issues using base64 encoding
     set(SOURCE_INDEX_CMD
-        "Install-Module -Name PdbSourceIndexing -Scope CurrentUser -Force;"
-        "Import-Module -Name PdbSourceIndexing;"
-        "Update-PdbSourceIndexing -PDBs $Env:TargetPDB ${USER_MAPPINGS} ${EXCLUDEPATHS}"
+        "Install-Module -Name PdbSourceIndexing -Scope CurrentUser -Force; \
+        Import-Module -Name PdbSourceIndexing; \
+        Update-PdbSourceIndexing -PDBs $Env:TargetPDB ${USER_MAPPINGS} ${EXCLUDEPATHS} \
+        *> ${SOURCE_INDEX_LOG}"
     )
-    string(REPLACE "\n" "" SOURCE_INDEX_CMD "${SOURCE_INDEX_CMD}")
+
     execute_process(
         COMMAND powershell -NoProfile -Command
             "[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('${SOURCE_INDEX_CMD}'))"
@@ -297,17 +301,20 @@ if(MSVC)
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
 
-    # add post build event
+    # Dummy target used to trigger the source indexing command
+    add_custom_target(pdb-indexing ALL DEPENDS "${SOURCE_INDEX_LOG}")
+
     add_custom_command(
-        TARGET my-project POST_BUILD
-        COMMENT "Adding source indexing to pdb symbols"
+        OUTPUT "${SOURCE_INDEX_LOG}"
+        DEPENDS my-project
         COMMAND
-        "$<IF:$<CONFIG:Debug,RelWithDebInfo>,${CMAKE_COMMAND},exit>"
-        -E env
-            TargetPDB="$<TARGET_PDB_FILE:my-project>"
-            powershell
-                -NoProfile
-                -EncodedCommand ${SOURCE_INDEX_CMD}
+            "$<IF:$<CONFIG:Debug,RelWithDebInfo>,${CMAKE_COMMAND},exit>"
+            -E env
+                TargetPDB="$<TARGET_PDB_FILE:my-project>"
+                powershell
+                    -NoProfile
+                    -EncodedCommand ${SOURCE_INDEX_CMD}
+        COMMENT "Adding source indexing to pdb symbols"
     )
 endif()
 ```
