@@ -105,13 +105,18 @@ PS> $proto = @{
         Commit = "20250127.1"
       })
   }
+PS> $kafka = @{
+    Name = "confluentinc/librdkafka"
+    Path = "C:\vcpkg\buildtrees\librdkafka\src\v2.10.1-046784a406.clean"
+    Commit = "v2.10.1"
+  }
 PS> $abseil = @{
     Name = "abseil/abseil-cpp"
     Path = "C:\vcpkg\buildtrees\abseil\src\20250127.1-a0a219bf72.clean"
     Commit = "20250127.1"
   }
 PS> fixpdb -PDBs (gci /repos/my-project/build/Debug/*.pdb).FullName `
-           -MappedRepos @($proto, $abseil)
+           -MappedRepos @($proto, $kafka, $abseil)
 ```
 
 Using json strings to define the array of its elements is also possible:
@@ -135,6 +140,11 @@ PS> $json = @'
         "Name": "abseil/abseil-cpp"
       }
     ]
+  },
+  {
+    "Commit": "v2.10.1",
+    "Path": "C:\\vcpkg\\buildtrees\\librdkafka\\src\\v2.10.1-046784a406.clean",
+    "Name": "confluentinc/librdkafka"
   },
   {
     "Commit": "20250127.1",
@@ -174,6 +184,10 @@ if(MSVC)
 endif()
 ```
 
+The `add_custom_command()` call above is linked to the project target and will run the cmdlet each time the target is
+build (even if the *pdb* file was not updated). [Bellow](a-static-library-example) another strategy linking the custom
+command to a log file (used as timestamp) that solves this issue.
+
 ### Unconventional use cases
 
 As mentioned above there are use cases were the git repos associated to the sources are not available:
@@ -209,17 +223,19 @@ This strategy implies large build times which are often attenuated using caching
 As an example I have created a github actions [workflow](./.github/workflows/depends.yml) that builds the dependencies
 associated to a project that requires `protobuf` and `kafka` libraries. `protobuf` relies on `abseil-cpp` which is
 tricky to configure so `vcpkg` is used to solve `CMake` configuration issues.
-I customize the `vcpkg` *triplet* to use `msbuild` generator instead of `ninja` and target a specific compiler version[^2]:
+I customize the `vcpkg` *ports* to use `msbuild` generator instead of `ninja` and target a specific compiler version[^2]:
 ```cmake
-    set(WINDOWS_USE_MSBUILD ON)
-    set(CMAKE_GENERATOR_TOOLSET "v143,host=x64")
+        set(VCPKG_PLATFORM_TOOLSET v143)
+        vcpkg_cmake_configure(
+            WINDOWS_USE_MSBUILD
+                ...
 ```
 
 [^2]: Visual C++ unifies all compiler, linker, STL and runtime versioning under a toolset version
       (e.g. `v143` for Visual Studio 2022, `v142` for Visual Studio 2019, etc.).
 
 The workflow generates an
-[artifact](https://github.com/MiguelBarro/PdbSourceIndexing/actions/runs/16053397307/artifacts/3459394681) 
+[artifact](https://github.com/MiguelBarro/PdbSourceIndexing/actions/runs/16289141174/artifacts/3534507604) 
 ready for deploy that contains under the folder `x64-windows-static-msvc`: static libraries in Debug/Release mode,
 headers and CMake/pkgconfig config files.
 
@@ -271,6 +287,11 @@ if(MSVC)
                 "Name": "abseil/abseil-cpp"
               }
             ]
+          },
+          {
+            "Commit": "v2.10.1",
+            "Path": "C:\\vcpkg\\buildtrees\\librdkafka\\src\\v2.10.1-046784a406.clean",
+            "Name": "confluentinc/librdkafka"
           },
           {
             "Commit": "20250127.1",
